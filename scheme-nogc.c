@@ -3573,12 +3573,12 @@ int main(int argc, char *argv[])
 
   //  mmtk_set_heap_size(1024*1024,1024*1024*1024);
   printf("%s:%d:%s About to run mmtk_init\n",__FILE__, __LINE__, __FUNCTION__);
-  //mmtk_init();
+  mmtk_init();
 
   //test to see if lazy_static and singleton gets initialized properly!
-  printf("calling initialize_mmtk\n");
-  initialize_mmtk();
-  printf("mmtk initialized\n");
+  //printf("calling initialize_mmtk\n");
+  //initialize_mmtk();
+  //printf("mmtk initialized\n");
 
   mmtk_c_test();
   
