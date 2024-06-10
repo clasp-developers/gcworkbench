@@ -19,6 +19,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// mmtk and debugging specific includes
+#include <time.h>
+#include <math.h>
+#include <signal.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include "mmtk.h"
 
 
@@ -259,6 +266,47 @@ static char error_message[MSGMAX+1];
 
 /* SUPPORT FUNCTIONS */
 
+
+/* handle_SIGUSR1 set a global variable when SIGUSR1 is detected
+ */
+
+int global_sigusr1 = 0;
+
+void handle_SIGUSR1(int sig) {
+  global_sigusr1 = 1;
+}
+
+void setup_sigusr1() {
+  signal( SIGUSR1, handle_SIGUSR1 );
+}
+
+void wait_for_user_signal(const char* message) {
+  printf("%s:%d:%s\n"
+         "Paused for SIGUSR1 pid is %d\n"
+         "%s\n",
+         __FILE__, __LINE__, __FUNCTION__, getpid(), message);
+  if (getenv("CLASP_EXIT_ON_WAIT_FOR_USER_SIGNAL")) {
+    exit(1);
+  }
+  double dsec = 0.1;
+  double seconds = floor(dsec);
+  double frac_seconds = dsec - seconds;
+  double nanoseconds = (frac_seconds * 1000000000.0);
+  struct timespec ts;
+  while (!global_sigusr1) {
+    ts.tv_sec = seconds;
+    ts.tv_nsec = nanoseconds;
+    int code = nanosleep(&ts, &ts);
+    if (code < 0) {
+      if (errno == EINTR)
+        continue;
+      printf("%s:%d:%s nanosleep return error: %d\n", __FILE__, __LINE__, __FUNCTION__, errno);
+      abort();
+    }
+  }
+  printf("%s:%d:%s Received SIGUSR1\n", __FILE__, __LINE__, __FUNCTION__);
+  global_sigusr1 = 0;
+}
 
 /* error -- throw an error condition
  *
@@ -3568,6 +3616,11 @@ int main(int argc, char *argv[])
   size_t i;
   volatile obj_t env, op_env, obj;
   jmp_buf jb;
+
+  if (argc == 2 && strcmp(argv[1],"-w")==0) {
+    setup_sigusr1();
+    wait_for_user_signal("Waiting for SIGUSR1");
+  }
 
   total = (size_t)0;
 
