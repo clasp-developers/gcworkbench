@@ -3626,7 +3626,11 @@ int main(int argc, char *argv[])
 
   //  mmtk_set_heap_size(1024*1024,1024*1024*1024);
   printf("%s:%d:%s About to run mmtk_init\n",__FILE__, __LINE__, __FUNCTION__);
-  mmtk_init();
+  // Create the builder here
+  void* builder = mmtk_create_builder(); // -> *mut MMTKBuilder
+  // Set up the builder
+  // mmtk_set_option_from_string( builder, option_name, option_value );
+  mmtk_init(builder);
 
   //test to see if lazy_static and singleton gets initialized properly!
   //printf("calling initialize_mmtk\n");
