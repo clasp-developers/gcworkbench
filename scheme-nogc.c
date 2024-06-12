@@ -3608,10 +3608,12 @@ static struct {char *name; entry_t entry;} funtab[] = {
 
 
 /* MAIN PROGRAM */
-
+#define RUN_TEST 1
 
 int main(int argc, char *argv[])
 {
+  void* start;
+  void* stack_start = &start;
   FILE *input = stdin;
   size_t i;
   volatile obj_t env, op_env, obj;
@@ -3624,10 +3626,17 @@ int main(int argc, char *argv[])
 
   total = (size_t)0;
 
+  #ifdef RUN_TEST
+  printf("running mmtk_init_test");
+  mmtk_init_test();
+  return EXIT_SUCCESS;
+  #endif
+    
+
   //  mmtk_set_heap_size(1024*1024,1024*1024*1024);
   printf("%s:%d:%s About to run mmtk_init\n",__FILE__, __LINE__, __FUNCTION__);
   // Create the builder here
-  void* builder = mmtk_create_builder(); // -> *mut MMTKBuilder
+ void* builder = mmtk_create_builder(); // -> *mut MMTKBuilder
   // Set up the builder
   // mmtk_set_option_from_string( builder, option_name, option_value );
   mmtk_init(builder);
