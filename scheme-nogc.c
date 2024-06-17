@@ -3630,7 +3630,7 @@ int main(int argc, char *argv[])
   //printf("converting pointer type");
   //void* opaque_pointer = convert_to_opaque_pointer(stack_start);
   printf("running mmtk_init_test");
-  mmtk_init_test(stack_start);
+  mmtk_init_test();
   return EXIT_SUCCESS;
   #endif
     
