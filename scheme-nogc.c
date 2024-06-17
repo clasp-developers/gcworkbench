@@ -3627,8 +3627,10 @@ int main(int argc, char *argv[])
   total = (size_t)0;
 
   #ifdef RUN_TEST
+  //printf("converting pointer type");
+  //void* opaque_pointer = convert_to_opaque_pointer(stack_start);
   printf("running mmtk_init_test");
-  mmtk_init_test();
+  mmtk_init_test(stack_start);
   return EXIT_SUCCESS;
   #endif
     
