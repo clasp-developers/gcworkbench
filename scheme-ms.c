@@ -46,10 +46,15 @@
 void* global_mutator = NULL;  // Global var for single mutator thread
 
 void* my_malloc(size_t size) {
-  void* addr = mmtk_alloc( global_mutator, size, 8, 0, 0 );
-  printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, size, addr );
+  size_t true_size = size;
+  if ((size & 7) != 0) {
+    true_size = (size+8)&(~7);
+    printf("  Expanding alloc from %lu to %lu bytes\n", size, true_size );
+  }
+  void* addr = mmtk_alloc( global_mutator, true_size, 8, 0, 0 );
+  printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, true_size, addr );
   // convert addr to object_reference
-  mmtk_post_alloc( global_mutator, addr, size, 0 );
+  mmtk_post_alloc( global_mutator, addr, true_size, 0 );
   return addr;
 }
 
@@ -3660,9 +3665,9 @@ int main(int argc, char *argv[])
   }
   // Set up the builder
   // mmtk_set_option_from_string( builder, option_name, option_value );
-  int option1 = mmtk_set_option_from_string( builder, "plan", "NoGC" );
+  int option1 = mmtk_set_option_from_string( builder, "plan", "MarkSweep" ); // MarkSweep
   if (!option1) {
-    printf("%s:%d:%s Error when calling mmtk_set_option_from_string plan NoGC\n", __FILE__, __LINE__, __FUNCTION__ );
+    printf("%s:%d:%s Error when calling mmtk_set_option_from_string plan\n", __FILE__, __LINE__, __FUNCTION__ );
     exit(1);
   }
   mmtk_init(builder);

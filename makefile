@@ -1,4 +1,7 @@
 
+ms: scheme-ms.c ../mmtk-scheme/build/libmmtkscheme.a
+	clang scheme-ms.c -g -O0 -I ../mmtk-scheme/scheme -L../mmtk-scheme/build/ -lmmtkscheme -lm -o ms
+
 
 nogc: scheme-nogc.c ../mmtk-scheme/build/libmmtkscheme.a
 	clang scheme-nogc.c -g -O0 -I ../mmtk-scheme/scheme -L../mmtk-scheme/build/ -lmmtkscheme -lm -o nogc
