@@ -3482,7 +3482,7 @@ static obj_t entry_hashtable_keys(obj_t env, obj_t op_env, obj_t operator, obj_t
 static obj_t entry_gc(obj_t env, obj_t op_env, obj_t operator, obj_t operands)
 {
   eval_args(operator->operator.name, env, op_env, operands, 0);
-  /* Nothing to do! */
+  mmtk_handle_user_collection_request(global_mutator);
   return obj_undefined;
 }
 
@@ -3671,8 +3671,12 @@ int main(int argc, char *argv[])
     exit(1);
   }
   mmtk_init(builder);
-
+  
   global_mutator = mmtk_bind_mutator(NULL); // NULL for main mutator thread
+  mmtk_initialize_collection(global_mutator);
+  
+  //printf("manually triggering garbage collection");
+  //mmtk_handle_user_collection_request(global_mutator);
 
   
   //test to see if lazy_static and singleton gets initialized properly!
