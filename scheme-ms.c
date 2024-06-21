@@ -52,9 +52,21 @@ void* my_malloc(size_t size) {
     printf("  Expanding alloc from %lu to %lu bytes\n", size, true_size );
   }
   void* addr = mmtk_alloc( global_mutator, true_size, 8, 0, 0 );
-  printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, true_size, addr );
+  if (!mmtk_is_mmtk_object(addr)){
+    printf("mmtk_is_mmtk_object returned false");
+  }
+  else {
+    printf("is_mmtk_object returned true");
+  }
+  //printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, true_size, addr );
   // convert addr to object_reference
   mmtk_post_alloc( global_mutator, addr, true_size, 0 );
+  if (!mmtk_is_mmtk_object(addr)){
+    printf("is_mmtk_object returned false");
+  }
+  else {
+    printf("is_mmtk_object returned true");
+  }
   return addr;
 }
 

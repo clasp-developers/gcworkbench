@@ -47,9 +47,21 @@ void* global_mutator = NULL;  // Global var for single mutator thread
 
 void* my_malloc(size_t size) {
   void* addr = mmtk_alloc( global_mutator, size, 8, 0, 0 );
-  printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, size, addr );
+  if (is_mmtk_object(addr) == 0){
+    printf("is_mmtk_object returned false");
+  }
+  else {
+    printf("is_mmtk_object returned true");
+  }
+  //printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, size, addr );
   // convert addr to object_reference
   mmtk_post_alloc( global_mutator, addr, size, 0 );
+  if (is_mmtk_object(addr) == 0){
+    printf("is_mmtk_object returned false");
+  }
+  else {
+    printf("is_mmtk_object returned true");
+  }
   return addr;
 }
 
