@@ -29,768 +29,780 @@
 #include "mmtk.h"
 
 
-/* LANGUAGE EXTENSION */
-
-#define unless(c)       if(!(c))
-#define LENGTH(array)   (sizeof(array) / sizeof(array[0]))
+void** global_stack_top = NULL;
 
 
-/* CONFIGURATION PARAMETERS */
-
-
-#define SYMMAX          ((size_t)255)   /* max length of a symbol */
-#define MSGMAX          ((size_t)255)   /* max length of error message */
-#define STRMAX          ((size_t)255)   /* max length of a string */
-
-
-void* global_mutator = NULL;  // Global var for single mutator thread
-
-void* my_malloc(size_t size) {
-  size_t true_size = size;
-  if ((size & 7) != 0) {
-    true_size = (size+8)&(~7);
-    printf("  Expanding alloc from %lu to %lu bytes\n", size, true_size );
-  }
-  void* addr = mmtk_alloc( global_mutator, true_size, 8, 0, 0 );
-  if (!mmtk_is_mmtk_object(addr)){
-    printf("mmtk_is_mmtk_object returned false");
-  }
-  else {
-    printf("is_mmtk_object returned true");
-  }
-  //printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, true_size, addr );
-  // convert addr to object_reference
-  mmtk_post_alloc( global_mutator, addr, true_size, 0 );
-  if (!mmtk_is_mmtk_object(addr)){
-    printf("is_mmtk_object returned false");
-  }
-  else {
-    printf("is_mmtk_object returned true");
-  }
-  return addr;
-}
-
-void my_free(void* addr) {
-  // Do nothing
+void** mutator_stack_top() {
+  printf("%s:%d:%s Someone is calling this function\n", __FILE__, __LINE__, __FUNCTION__ );
+  return global_stack_top;
 }
 
 
-/* DATA TYPES */
+typedef struct {
+  void** (*mutator_stack_top)(void);
+} RtUpcalls;
 
 
-/* obj_t -- scheme object type
- *
- * obj_t is a pointer to a union, obj_u, which has members for
- * each scheme representation.
- *
- * The obj_u also has a "type" member.  Each representation
- * structure also has a "type" field first.  ANSI C guarantees
- * that these type fields correspond [section?].
- *
- * Objects are allocated by allocating one of the representation
- * structures and casting the pointer to it to type obj_t.  This
- * allows objects of different sizes to be represented by the
- * same type.
- *
- * To access an object, check its type by reading TYPE(obj), then
- * access the fields of the representation, e.g.
- *   if(TYPE(obj) == TYPE_PAIR) fiddle_with(CAR(obj));
- */
-
-typedef union obj_u *obj_t;
-
-typedef obj_t (*entry_t)(obj_t env, obj_t op_env, obj_t operator, obj_t rands);
-
-typedef int type_t;
-enum {
-  TYPE_PAIR,
-  TYPE_INTEGER,
-  TYPE_SYMBOL,
-  TYPE_SPECIAL,
-  TYPE_OPERATOR,
-  TYPE_STRING,
-  TYPE_PORT,
-  TYPE_PROMISE,
-  TYPE_CHARACTER,
-  TYPE_VECTOR,
-  TYPE_TABLE,
-  TYPE_BUCKETS
+RtUpcalls global_rt_upcalls = {
+  mutator_stack_top,
 };
 
-typedef struct type_s {
-  type_t type;
-} type_s;
+    /* LANGUAGE EXTENSION */
 
-typedef struct pair_s {
-  type_t type;                  /* TYPE_PAIR */
-  obj_t car, cdr;               /* first and second projections */
-} pair_s;
-
-typedef struct symbol_s {
-  type_t type;                  /* TYPE_SYMBOL */
-  size_t length;                /* length of symbol string (excl. NUL) */
-  char string[1];               /* symbol string, NUL terminated */
-} symbol_s;
-
-typedef struct integer_s {
-  type_t type;                  /* TYPE_INTEGER */
-  long integer;                 /* the integer */
-} integer_s;
-
-typedef struct special_s {
-  type_t type;                  /* TYPE_SPECIAL */
-  char *name;                   /* printed representation, NUL terminated */
-} special_s;
-
-typedef struct operator_s {
-  type_t type;                  /* TYPE_OPERATOR */
-  char *name;                   /* printed name, NUL terminated */
-  entry_t entry;                /* entry point -- see eval() */
-  obj_t arguments, body;        /* function arguments and code */
-  obj_t env, op_env;            /* closure environments */
-} operator_s;
-
-typedef struct string_s {
-  type_t type;                  /* TYPE_STRING */
-  size_t length;                /* number of chars in string */
-  char string[1];               /* string, NUL terminated */
-} string_s;
-
-typedef struct port_s {
-  type_t type;                  /* TYPE_PORT */
-  obj_t name;                   /* name of stream */
-  FILE *stream;
-} port_s;
-
-typedef struct character_s {
-  type_t type;                  /* TYPE_CHARACTER */
-  char c;                       /* the character */
-} character_s;
-
-typedef struct vector_s {
-  type_t type;                  /* TYPE_VECTOR */
-  size_t length;                /* number of elements */
-  obj_t vector[1];              /* vector elements */
-} vector_s;
-
-typedef unsigned long (*hash_t)(obj_t obj);
-typedef int (*cmp_t)(obj_t obj1, obj_t obj2);
-
-typedef struct table_s {
-  type_t type;                  /* TYPE_TABLE */
-  hash_t hash;                  /* hash function */
-  cmp_t cmp;                    /* comparison function */
-  obj_t buckets;                /* hash buckets */
-} table_s;
-
-typedef struct buckets_s {
-  type_t type;                  /* TYPE_BUCKETS */
-  size_t length;                /* number of buckets */
-  size_t used;                  /* number of buckets in use */
-  size_t deleted;               /* number of deleted buckets */
-  struct bucket_s {
-    obj_t key, value;
-  } bucket[1];                  /* hash buckets */
-} buckets_s;
-
-typedef union obj_u {
-  type_s type;                  /* one of TYPE_* */
-  pair_s pair;
-  symbol_s symbol;
-  integer_s integer;
-  special_s special;
-  operator_s operator;
-  string_s string;
-  port_s port;
-  character_s character;
-  vector_s vector;
-  table_s table;
-  buckets_s buckets;
-} obj_s;
+    #define unless(c)       if(!(c))
+    #define LENGTH(array)   (sizeof(array) / sizeof(array[0]))
 
 
-/* structure macros */
-
-#define TYPE(obj)       ((obj)->type.type)
-#define CAR(obj)        ((obj)->pair.car)
-#define CDR(obj)        ((obj)->pair.cdr)
-#define CAAR(obj)       CAR(CAR(obj))
-#define CADR(obj)       CAR(CDR(obj))
-#define CDAR(obj)       CDR(CAR(obj))
-#define CDDR(obj)       CDR(CDR(obj))
-#define CADDR(obj)      CAR(CDDR(obj))
-#define CDDDR(obj)      CDR(CDDR(obj))
-#define CDDAR(obj)      CDR(CDAR(obj))
-#define CADAR(obj)      CAR(CDAR(obj))
+    /* CONFIGURATION PARAMETERS */
 
 
-/* GLOBAL DATA */
+    #define SYMMAX          ((size_t)255)   /* max length of a symbol */
+    #define MSGMAX          ((size_t)255)   /* max length of error message */
+    #define STRMAX          ((size_t)255)   /* max length of a string */
 
 
-/* total -- total allocated bytes */
+    void* global_mutator = NULL;  // Global var for single mutator thread
 
-static size_t total;
-
-
-/* symtab -- symbol table
- *
- * The symbol table is a hash-table containing objects of TYPE_SYMBOL.
- * When a string is "interned" it is looked up in the table, and added
- * only if it is not there.  This guarantees that all symbols which
- * are equal are actually the same object.
- */
-
-static obj_t *symtab;
-static size_t symtab_size;
-
-
-/* special objects
- *
- * These global variables are initialized to point to objects of
- * TYPE_SPECIAL by main.  They are used as markers for various
- * special purposes.
- */
-
-static obj_t obj_empty;         /* (), the empty list */
-static obj_t obj_eof;           /* end of file */
-static obj_t obj_error;         /* error indicator */
-static obj_t obj_true;          /* #t, boolean true */
-static obj_t obj_false;         /* #f, boolean false */
-static obj_t obj_undefined;     /* undefined result indicator */
-static obj_t obj_tail;          /* tail recursion indicator */
-static obj_t obj_deleted;       /* deleted key in hashtable */
-
-
-/* predefined symbols
- *
- * These global variables are initialized to point to interned
- * objects of TYPE_SYMBOL.  They have special meaning in the
- * Scheme language, and are used by the evaluator to parse code.
- */
-
-static obj_t obj_quote;         /* "quote" symbol */
-static obj_t obj_quasiquote;    /* "quasiquote" symbol */
-static obj_t obj_lambda;        /* "lambda" symbol */
-static obj_t obj_begin;         /* "begin" symbol */
-static obj_t obj_else;          /* "else" symbol */
-static obj_t obj_unquote;       /* "unquote" symbol */
-static obj_t obj_unquote_splic; /* "unquote-splicing" symbol */
-
-
-/* error handler
- *
- * The error_handler variable is initialized to point at a
- * jmp_buf to which the "error" function longjmps if there is
- * any kind of error during evaluation.  It can be set up by
- * any enclosing function that wants to catch errors.  There
- * is a default error handler in main, in the read-eval-print
- * loop.  The error function also writes an error message
- * into "error_message" before longjmping, and this can be
- * displayed to the user when catching the error.
- *
- * [An error code should also be passed so that the error can
- *  be decoded by enclosing code.]
- */
-
-static jmp_buf *error_handler = NULL;
-static char error_message[MSGMAX+1];
-
-
-/* SUPPORT FUNCTIONS */
-
-
-/* handle_SIGUSR1 set a global variable when SIGUSR1 is detected
- */
-
-int global_sigusr1 = 0;
-
-void handle_SIGUSR1(int sig) {
-  global_sigusr1 = 1;
-}
-
-void setup_sigusr1() {
-  signal( SIGUSR1, handle_SIGUSR1 );
-}
-
-void wait_for_user_signal(const char* message) {
-  printf("%s:%d:%s\n"
-         "Paused for SIGUSR1 pid is %d\n"
-         "%s\n",
-         __FILE__, __LINE__, __FUNCTION__, getpid(), message);
-  if (getenv("CLASP_EXIT_ON_WAIT_FOR_USER_SIGNAL")) {
-    exit(1);
-  }
-  double dsec = 0.1;
-  double seconds = floor(dsec);
-  double frac_seconds = dsec - seconds;
-  double nanoseconds = (frac_seconds * 1000000000.0);
-  struct timespec ts;
-  while (!global_sigusr1) {
-    ts.tv_sec = seconds;
-    ts.tv_nsec = nanoseconds;
-    int code = nanosleep(&ts, &ts);
-    if (code < 0) {
-      if (errno == EINTR)
-        continue;
-      printf("%s:%d:%s nanosleep return error: %d\n", __FILE__, __LINE__, __FUNCTION__, errno);
-      abort();
+    void* my_malloc(size_t size) {
+    size_t true_size = size;
+    if ((size & 7) != 0) {
+        // Align up the allocation to word size
+        true_size = (size+8)&(~7);
     }
-  }
-  printf("%s:%d:%s Received SIGUSR1\n", __FILE__, __LINE__, __FUNCTION__);
-  global_sigusr1 = 0;
-}
-
-/* error -- throw an error condition
- *
- * The "error" function takes a printf-style format string
- * and arguments, writes the message into error_message and
- * longjmps to *error_handler.  There must be a setjmp at
- * the other end to catch the condition and display the
- * message.
- */
-
-static void error(char *format, ...)
-{
-  va_list args;
-
-  va_start(args, format);
-  vsnprintf(error_message, sizeof error_message, format, args);
-  va_end(args);
-
-  if (error_handler) {
-    longjmp(*error_handler, 1);
-  } else {
-    fflush(stdout);
-    fprintf(stderr, "Fatal error during initialization: %s\n",
-            error_message);
-    abort();
-  }
-}
-
-/* make_* -- object constructors
- *
- * Each object type has a function here which allocates an
- * instance of that type.
- */
-
-static obj_t make_bool(int condition)
-{
-  return condition ? obj_true : obj_false;
-}
-
-static obj_t make_pair(obj_t car, obj_t cdr)
-{
-  obj_t obj = (obj_t)my_malloc(sizeof(pair_s));
-  if(obj == NULL) error("out of memory");
-  total += sizeof(pair_s);
-  obj->pair.type = TYPE_PAIR;
-  CAR(obj) = car;
-  CDR(obj) = cdr;
-  return obj;
-}
-
-static obj_t make_integer(long integer)
-{
-  obj_t obj = (obj_t)my_malloc(sizeof(integer_s));
-  if(obj == NULL) error("out of memory");
-  total += sizeof(integer_s);
-  obj->integer.type = TYPE_INTEGER;
-  obj->integer.integer = integer;
-  return obj;
-}
-
-static obj_t make_symbol(size_t length, char string[])
-{
-  size_t size = offsetof(symbol_s, string) + length+1;
-  obj_t obj = (obj_t)my_malloc(size);
-  if(obj == NULL) error("out of memory");
-  total += size;
-  obj->symbol.type = TYPE_SYMBOL;
-  obj->symbol.length = length;
-  memcpy(obj->symbol.string, string, length+1);
-  return obj;
-}
-
-static obj_t make_string(size_t length, char string[])
-{
-  size_t size = offsetof(string_s, string) + length+1;
-  obj_t obj = (obj_t)my_malloc(size);
-  if(obj == NULL) error("out of memory");
-  total += size;
-  obj->string.type = TYPE_STRING;
-  obj->string.length = length;
-  if (string) memcpy(obj->string.string, string, length+1);
-  else memset(obj->string.string, 0, length+1);
-  return obj;
-}
-
-static obj_t make_special(char *string)
-{
-  obj_t obj = (obj_t)my_malloc(sizeof(special_s));
-  if(obj == NULL) error("out of memory");
-  total += sizeof(special_s);
-  obj->special.type = TYPE_SPECIAL;
-  obj->special.name = string;
-  return obj;
-}
-
-static obj_t make_operator(char *name,
-                           entry_t entry, obj_t arguments,
-                           obj_t body, obj_t env, obj_t op_env)
-{
-  obj_t obj = (obj_t)my_malloc(sizeof(operator_s));
-  if(obj == NULL) error("out of memory");
-  total += sizeof(operator_s);
-  obj->operator.type = TYPE_OPERATOR;
-  obj->operator.name = name;
-  obj->operator.entry = entry;
-  obj->operator.arguments = arguments;
-  obj->operator.body = body;
-  obj->operator.env = env;
-  obj->operator.op_env = op_env;
-  return obj;
-}
-
-static obj_t make_port(obj_t name, FILE *stream)
-{
-  obj_t obj = (obj_t)my_malloc(sizeof(port_s));
-  if(obj == NULL) error("out of memory");
-  total += sizeof(port_s);
-  obj->port.type = TYPE_PORT;
-  obj->port.name = name;
-  obj->port.stream = stream;
-  return obj;
-}
-
-static obj_t make_character(char c)
-{
-  obj_t obj = (obj_t)my_malloc(sizeof(character_s));
-  if(obj == NULL) error("out of memory");
-  total += sizeof(character_s);
-  obj->character.type = TYPE_CHARACTER;
-  obj->character.c = c;
-  return obj;
-}
-
-static obj_t make_vector(size_t length, obj_t fill)
-{
-  size_t size = offsetof(vector_s, vector) + length * sizeof(obj_t);
-  size_t i;
-  obj_t obj = (obj_t)my_malloc(size);
-  if(obj == NULL) error("out of memory");
-  total += size;
-  obj->vector.type = TYPE_VECTOR;
-  obj->vector.length = length;
-  for(i = 0; i < length; ++i)
-    obj->vector.vector[i] = fill;
-  return obj;
-}
-
-static obj_t make_buckets(size_t length)
-{
-  size_t i, size = offsetof(buckets_s, bucket) + length * 2 * sizeof(obj_t);
-  obj_t obj = (obj_t)my_malloc(size);
-  if(obj == NULL) error("out of memory");
-  total += size;
-  obj->buckets.type = TYPE_BUCKETS;
-  obj->buckets.length = length;
-  obj->buckets.used = 0;
-  obj->buckets.deleted = 0;
-  for(i = 0; i < length; ++i) {
-    obj->buckets.bucket[i].key = NULL;
-    obj->buckets.bucket[i].value = NULL;
-  }
-  return obj;
-}
-
-static obj_t make_table(size_t length, hash_t hashf, cmp_t cmpf)
-{
-  size_t l, size = sizeof(table_s);
-  obj_t obj = (obj_t)my_malloc(size);
-  if(obj == NULL) error("out of memory");
-  total += size;
-  obj->table.type = TYPE_TABLE;
-  obj->table.hash = hashf;
-  obj->table.cmp = cmpf;
-  /* round up to next power of 2 */
-  for(l = 1; l < length; l *= 2);
-  obj->table.buckets = make_buckets(l);
-  return obj;
-}
-
-
-/* getnbc -- get next non-blank char from stream */
-
-static int getnbc(FILE *stream)
-{
-  int c;
-  do {
-    c = getc(stream);
-    if(c == ';') {
-      do
-        c = getc(stream);
-      while(c != EOF && c != '\n');
+    void* addr = mmtk_alloc( global_mutator, true_size, 8, 0, 0 );
+    if (mmtk_is_mmtk_object(addr)) {
+        printf("Before mmtk_post_alloc mmtk_is_mmtk_object returned %d when it should return 0\n", mmtk_is_mmtk_object(addr));
     }
-  } while(isspace(c));
-  return c;
-}
+    //printf("%s:%d:%s mmtk allocate %lu bytes -> %p\n", __FILE__, __LINE__, __FUNCTION__, true_size, addr );
+    // convert addr to object_reference
+    mmtk_post_alloc( global_mutator, addr, true_size, 0 );
+    if (!mmtk_is_mmtk_object(addr)) {
+        printf("Before mmtk_post_alloc mmtk_is_mmtk_object returned %d when it should return 1\n", mmtk_is_mmtk_object(addr));
+    }
+    return addr;
+    }
+
+    void my_free(void* addr) {
+    // Do nothing
+    }
 
 
-/* isealpha -- test for "extended alphabetic" char
- *
- * Scheme symbols may contain any "extended alphabetic"
- * character (see section 2.1 of R4RS).  This function
- * returns non-zero if a character is in the set of
- * extended characters.
- */
-
-static int isealpha(int c)
-{
-  return strchr("+-.*/<=>!?:$%_&~^", c) != NULL;
-}
+    /* DATA TYPES */
 
 
-/* hash -- hash a string to an unsigned long
- *
- * This hash function was derived (with permission) from
- * Paul Haahr's hash in the most excellent rc 1.4.
- */
+    /* obj_t -- scheme object type
+    *
+    * obj_t is a pointer to a union, obj_u, which has members for
+    * each scheme representation.
+    *
+    * The obj_u also has a "type" member.  Each representation
+    * structure also has a "type" field first.  ANSI C guarantees
+    * that these type fields correspond [section?].
+    *
+    * Objects are allocated by allocating one of the representation
+    * structures and casting the pointer to it to type obj_t.  This
+    * allows objects of different sizes to be represented by the
+    * same type.
+    *
+    * To access an object, check its type by reading TYPE(obj), then
+    * access the fields of the representation, e.g.
+    *   if(TYPE(obj) == TYPE_PAIR) fiddle_with(CAR(obj));
+    */
 
-static unsigned long hash(const char *s, size_t length) {
-  char c;
-  unsigned long h=0;
-  size_t i = 0;
-  switch(length % 4) {
+    typedef union obj_u *obj_t;
+
+    typedef obj_t (*entry_t)(obj_t env, obj_t op_env, obj_t operator, obj_t rands);
+
+    typedef int type_t;
+    enum {
+    TYPE_PAIR,
+    TYPE_INTEGER,
+    TYPE_SYMBOL,
+    TYPE_SPECIAL,
+    TYPE_OPERATOR,
+    TYPE_STRING,
+    TYPE_PORT,
+    TYPE_PROMISE,
+    TYPE_CHARACTER,
+    TYPE_VECTOR,
+    TYPE_TABLE,
+    TYPE_BUCKETS
+    };
+
+    typedef struct type_s {
+    type_t type;
+    } type_s;
+
+    typedef struct pair_s {
+    type_t type;                  /* TYPE_PAIR */
+    obj_t car, cdr;               /* first and second projections */
+    } pair_s;
+
+    typedef struct symbol_s {
+    type_t type;                  /* TYPE_SYMBOL */
+    size_t length;                /* length of symbol string (excl. NUL) */
+    char string[1];               /* symbol string, NUL terminated */
+    } symbol_s;
+
+    typedef struct integer_s {
+    type_t type;                  /* TYPE_INTEGER */
+    long integer;                 /* the integer */
+    } integer_s;
+
+    typedef struct special_s {
+    type_t type;                  /* TYPE_SPECIAL */
+    char *name;                   /* printed representation, NUL terminated */
+    } special_s;
+
+    typedef struct operator_s {
+    type_t type;                  /* TYPE_OPERATOR */
+    char *name;                   /* printed name, NUL terminated */
+    entry_t entry;                /* entry point -- see eval() */
+    obj_t arguments, body;        /* function arguments and code */
+    obj_t env, op_env;            /* closure environments */
+    } operator_s;
+
+    typedef struct string_s {
+    type_t type;                  /* TYPE_STRING */
+    size_t length;                /* number of chars in string */
+    char string[1];               /* string, NUL terminated */
+    } string_s;
+
+    typedef struct port_s {
+    type_t type;                  /* TYPE_PORT */
+    obj_t name;                   /* name of stream */
+    FILE *stream;
+    } port_s;
+
+    typedef struct character_s {
+    type_t type;                  /* TYPE_CHARACTER */
+    char c;                       /* the character */
+    } character_s;
+
+    typedef struct vector_s {
+    type_t type;                  /* TYPE_VECTOR */
+    size_t length;                /* number of elements */
+    obj_t vector[1];              /* vector elements */
+    } vector_s;
+
+    typedef unsigned long (*hash_t)(obj_t obj);
+    typedef int (*cmp_t)(obj_t obj1, obj_t obj2);
+
+    typedef struct table_s {
+    type_t type;                  /* TYPE_TABLE */
+    hash_t hash;                  /* hash function */
+    cmp_t cmp;                    /* comparison function */
+    obj_t buckets;                /* hash buckets */
+    } table_s;
+
+    typedef struct buckets_s {
+    type_t type;                  /* TYPE_BUCKETS */
+    size_t length;                /* number of buckets */
+    size_t used;                  /* number of buckets in use */
+    size_t deleted;               /* number of deleted buckets */
+    struct bucket_s {
+        obj_t key, value;
+    } bucket[1];                  /* hash buckets */
+    } buckets_s;
+
+    typedef union obj_u {
+    type_s type;                  /* one of TYPE_* */
+    pair_s pair;
+    symbol_s symbol;
+    integer_s integer;
+    special_s special;
+    operator_s operator;
+    string_s string;
+    port_s port;
+    character_s character;
+    vector_s vector;
+    table_s table;
+    buckets_s buckets;
+    } obj_s;
+
+
+    /* structure macros */
+
+    #define TYPE(obj)       ((obj)->type.type)
+    #define CAR(obj)        ((obj)->pair.car)
+    #define CDR(obj)        ((obj)->pair.cdr)
+    #define CAAR(obj)       CAR(CAR(obj))
+    #define CADR(obj)       CAR(CDR(obj))
+    #define CDAR(obj)       CDR(CAR(obj))
+    #define CDDR(obj)       CDR(CDR(obj))
+    #define CADDR(obj)      CAR(CDDR(obj))
+    #define CDDDR(obj)      CDR(CDDR(obj))
+    #define CDDAR(obj)      CDR(CDAR(obj))
+    #define CADAR(obj)      CAR(CDAR(obj))
+
+
+    /* GLOBAL DATA */
+
+
+    /* total -- total allocated bytes */
+
+    static size_t total;
+
+
+    /* symtab -- symbol table
+    *
+    * The symbol table is a hash-table containing objects of TYPE_SYMBOL.
+    * When a string is "interned" it is looked up in the table, and added
+    * only if it is not there.  This guarantees that all symbols which
+    * are equal are actually the same object.
+    */
+
+    static obj_t *symtab;
+    static size_t symtab_size;
+
+
+    /* special objects
+    *
+    * These global variables are initialized to point to objects of
+    * TYPE_SPECIAL by main.  They are used as markers for various
+    * special purposes.
+    */
+
+    static obj_t obj_empty;         /* (), the empty list */
+    static obj_t obj_eof;           /* end of file */
+    static obj_t obj_error;         /* error indicator */
+    static obj_t obj_true;          /* #t, boolean true */
+    static obj_t obj_false;         /* #f, boolean false */
+    static obj_t obj_undefined;     /* undefined result indicator */
+    static obj_t obj_tail;          /* tail recursion indicator */
+    static obj_t obj_deleted;       /* deleted key in hashtable */
+
+
+    /* predefined symbols
+    *
+    * These global variables are initialized to point to interned
+    * objects of TYPE_SYMBOL.  They have special meaning in the
+    * Scheme language, and are used by the evaluator to parse code.
+    */
+
+    static obj_t obj_quote;         /* "quote" symbol */
+    static obj_t obj_quasiquote;    /* "quasiquote" symbol */
+    static obj_t obj_lambda;        /* "lambda" symbol */
+    static obj_t obj_begin;         /* "begin" symbol */
+    static obj_t obj_else;          /* "else" symbol */
+    static obj_t obj_unquote;       /* "unquote" symbol */
+    static obj_t obj_unquote_splic; /* "unquote-splicing" symbol */
+
+
+    /* error handler
+    *
+    * The error_handler variable is initialized to point at a
+    * jmp_buf to which the "error" function longjmps if there is
+    * any kind of error during evaluation.  It can be set up by
+    * any enclosing function that wants to catch errors.  There
+    * is a default error handler in main, in the read-eval-print
+    * loop.  The error function also writes an error message
+    * into "error_message" before longjmping, and this can be
+    * displayed to the user when catching the error.
+    *
+    * [An error code should also be passed so that the error can
+    *  be decoded by enclosing code.]
+    */
+
+    static jmp_buf *error_handler = NULL;
+    static char error_message[MSGMAX+1];
+
+
+    /* SUPPORT FUNCTIONS */
+
+
+    /* handle_SIGUSR1 set a global variable when SIGUSR1 is detected
+    */
+
+    int global_sigusr1 = 0;
+
+    void handle_SIGUSR1(int sig) {
+    global_sigusr1 = 1;
+    }
+
+    void setup_sigusr1() {
+    signal( SIGUSR1, handle_SIGUSR1 );
+    }
+
+    void wait_for_user_signal(const char* message) {
+    printf("%s:%d:%s\n"
+            "Paused for SIGUSR1 pid is %d\n"
+            "%s\n",
+            __FILE__, __LINE__, __FUNCTION__, getpid(), message);
+    if (getenv("CLASP_EXIT_ON_WAIT_FOR_USER_SIGNAL")) {
+        exit(1);
+    }
+    double dsec = 0.1;
+    double seconds = floor(dsec);
+    double frac_seconds = dsec - seconds;
+    double nanoseconds = (frac_seconds * 1000000000.0);
+    struct timespec ts;
+    while (!global_sigusr1) {
+        ts.tv_sec = seconds;
+        ts.tv_nsec = nanoseconds;
+        int code = nanosleep(&ts, &ts);
+        if (code < 0) {
+        if (errno == EINTR)
+            continue;
+        printf("%s:%d:%s nanosleep return error: %d\n", __FILE__, __LINE__, __FUNCTION__, errno);
+        abort();
+        }
+    }
+    printf("%s:%d:%s Received SIGUSR1\n", __FILE__, __LINE__, __FUNCTION__);
+    global_sigusr1 = 0;
+    }
+
+    /* error -- throw an error condition
+    *
+    * The "error" function takes a printf-style format string
+    * and arguments, writes the message into error_message and
+    * longjmps to *error_handler.  There must be a setjmp at
+    * the other end to catch the condition and display the
+    * message.
+    */
+
+    static void error(char *format, ...)
+    {
+    va_list args;
+
+    va_start(args, format);
+    vsnprintf(error_message, sizeof error_message, format, args);
+    va_end(args);
+
+    if (error_handler) {
+        longjmp(*error_handler, 1);
+    } else {
+        fflush(stdout);
+        fprintf(stderr, "Fatal error during initialization: %s\n",
+                error_message);
+        abort();
+    }
+    }
+
+    /* make_* -- object constructors
+    *
+    * Each object type has a function here which allocates an
+    * instance of that type.
+    */
+
+    static obj_t make_bool(int condition)
+    {
+    return condition ? obj_true : obj_false;
+    }
+
+    static obj_t make_pair(obj_t car, obj_t cdr)
+    {
+    obj_t obj = (obj_t)my_malloc(sizeof(pair_s));
+    if(obj == NULL) error("out of memory");
+    total += sizeof(pair_s);
+    obj->pair.type = TYPE_PAIR;
+    CAR(obj) = car;
+    CDR(obj) = cdr;
+    return obj;
+    }
+
+    static obj_t make_integer(long integer)
+    {
+    obj_t obj = (obj_t)my_malloc(sizeof(integer_s));
+    if(obj == NULL) error("out of memory");
+    total += sizeof(integer_s);
+    obj->integer.type = TYPE_INTEGER;
+    obj->integer.integer = integer;
+    return obj;
+    }
+
+    static obj_t make_symbol(size_t length, char string[])
+    {
+    size_t size = offsetof(symbol_s, string) + length+1;
+    obj_t obj = (obj_t)my_malloc(size);
+    if(obj == NULL) error("out of memory");
+    total += size;
+    obj->symbol.type = TYPE_SYMBOL;
+    obj->symbol.length = length;
+    memcpy(obj->symbol.string, string, length+1);
+    return obj;
+    }
+
+    static obj_t make_string(size_t length, char string[])
+    {
+    size_t size = offsetof(string_s, string) + length+1;
+    obj_t obj = (obj_t)my_malloc(size);
+    if(obj == NULL) error("out of memory");
+    total += size;
+    obj->string.type = TYPE_STRING;
+    obj->string.length = length;
+    if (string) memcpy(obj->string.string, string, length+1);
+    else memset(obj->string.string, 0, length+1);
+    return obj;
+    }
+
+    static obj_t make_special(char *string)
+    {
+    obj_t obj = (obj_t)my_malloc(sizeof(special_s));
+    if(obj == NULL) error("out of memory");
+    total += sizeof(special_s);
+    obj->special.type = TYPE_SPECIAL;
+    obj->special.name = string;
+    return obj;
+    }
+
+    static obj_t make_operator(char *name,
+                            entry_t entry, obj_t arguments,
+                            obj_t body, obj_t env, obj_t op_env)
+    {
+    obj_t obj = (obj_t)my_malloc(sizeof(operator_s));
+    if(obj == NULL) error("out of memory");
+    total += sizeof(operator_s);
+    obj->operator.type = TYPE_OPERATOR;
+    obj->operator.name = name;
+    obj->operator.entry = entry;
+    obj->operator.arguments = arguments;
+    obj->operator.body = body;
+    obj->operator.env = env;
+    obj->operator.op_env = op_env;
+    return obj;
+    }
+
+    static obj_t make_port(obj_t name, FILE *stream)
+    {
+    obj_t obj = (obj_t)my_malloc(sizeof(port_s));
+    if(obj == NULL) error("out of memory");
+    total += sizeof(port_s);
+    obj->port.type = TYPE_PORT;
+    obj->port.name = name;
+    obj->port.stream = stream;
+    return obj;
+    }
+
+    static obj_t make_character(char c)
+    {
+    obj_t obj = (obj_t)my_malloc(sizeof(character_s));
+    if(obj == NULL) error("out of memory");
+    total += sizeof(character_s);
+    obj->character.type = TYPE_CHARACTER;
+    obj->character.c = c;
+    return obj;
+    }
+
+    static obj_t make_vector(size_t length, obj_t fill)
+    {
+    size_t size = offsetof(vector_s, vector) + length * sizeof(obj_t);
+    size_t i;
+    obj_t obj = (obj_t)my_malloc(size);
+    if(obj == NULL) error("out of memory");
+    total += size;
+    obj->vector.type = TYPE_VECTOR;
+    obj->vector.length = length;
+    for(i = 0; i < length; ++i)
+        obj->vector.vector[i] = fill;
+    return obj;
+    }
+
+    static obj_t make_buckets(size_t length)
+    {
+    size_t i, size = offsetof(buckets_s, bucket) + length * 2 * sizeof(obj_t);
+    obj_t obj = (obj_t)my_malloc(size);
+    if(obj == NULL) error("out of memory");
+    total += size;
+    obj->buckets.type = TYPE_BUCKETS;
+    obj->buckets.length = length;
+    obj->buckets.used = 0;
+    obj->buckets.deleted = 0;
+    for(i = 0; i < length; ++i) {
+        obj->buckets.bucket[i].key = NULL;
+        obj->buckets.bucket[i].value = NULL;
+    }
+    return obj;
+    }
+
+    static obj_t make_table(size_t length, hash_t hashf, cmp_t cmpf)
+    {
+    size_t l, size = sizeof(table_s);
+    obj_t obj = (obj_t)my_malloc(size);
+    if(obj == NULL) error("out of memory");
+    total += size;
+    obj->table.type = TYPE_TABLE;
+    obj->table.hash = hashf;
+    obj->table.cmp = cmpf;
+    /* round up to next power of 2 */
+    for(l = 1; l < length; l *= 2);
+    obj->table.buckets = make_buckets(l);
+    return obj;
+    }
+
+
+    /* getnbc -- get next non-blank char from stream */
+
+    static int getnbc(FILE *stream)
+    {
+    int c;
     do {
-      c=s[i++]; h+=(c<<17)^(c<<11)^(c<<5)^(c>>1);
-    case 3:
-      c=s[i++]; h^=(c<<14)+(c<<7)+(c<<4)+c;
-    case 2:
-      c=s[i++]; h^=(~c<<11)|((c<<3)^(c>>1));
-    case 1:
-      c=s[i++]; h-=(c<<16)|(c<<9)|(c<<2)|(c&3);
-    case 0:
-      ;
-    } while(i < length);
-  }
-  return h;
-}
-
-
-/* find -- find entry for symbol in symbol table
- *
- * Look for a symbol matching the string in the symbol table.
- * If the symbol was found, returns the address of the symbol
- * table entry which points to the symbol.  Otherwise it
- * either returns the address of a NULL entry into which the
- * new symbol should be inserted, or NULL if the symbol table
- * is full.
- */
-
-static obj_t *find(char *string) {
-  unsigned long i, h, probe;
-
-  h = hash(string, strlen(string));
-  probe = (h >> 8) | 1;
-  h &= (symtab_size-1);
-  i = h;
-  do {
-    if(symtab[i] == NULL ||
-       strcmp(string, symtab[i]->symbol.string) == 0)
-      return &symtab[i];
-    i = (i+probe) & (symtab_size-1);
-  } while(i != h);
-
-  return NULL;
-}
-
-
-/* rehash -- double size of symbol table */
-
-static void rehash(void) {
-  obj_t *old_symtab = symtab;
-  unsigned old_symtab_size = symtab_size;
-  unsigned i;
-
-  symtab_size *= 2;
-  symtab = my_malloc(sizeof(obj_t) * symtab_size);
-  if(symtab == NULL) error("out of memory");
-
-  /* Initialize the new table to NULL so that "find" will work. */
-  for(i = 0; i < symtab_size; ++i)
-    symtab[i] = NULL;
-
-  for(i = 0; i < old_symtab_size; ++i)
-    if(old_symtab[i] != NULL) {
-      obj_t *where = find(old_symtab[i]->symbol.string);
-      assert(where != NULL);    /* new table shouldn't be full */
-      assert(*where == NULL);   /* shouldn't be in new table */
-      *where = old_symtab[i];
+        c = getc(stream);
+        if(c == ';') {
+        do
+            c = getc(stream);
+        while(c != EOF && c != '\n');
+        }
+    } while(isspace(c));
+    return c;
     }
 
-  my_free(old_symtab);
-}
 
-/* union-find string in symbol table, rehashing if necessary */
-static obj_t intern(char *string) {
-  obj_t *where;
+    /* isealpha -- test for "extended alphabetic" char
+    *
+    * Scheme symbols may contain any "extended alphabetic"
+    * character (see section 2.1 of R4RS).  This function
+    * returns non-zero if a character is in the set of
+    * extended characters.
+    */
 
-  where = find(string);
+    static int isealpha(int c)
+    {
+    return strchr("+-.*/<=>!?:$%_&~^", c) != NULL;
+    }
 
-  if(where == NULL) {
-    rehash();
+
+    /* hash -- hash a string to an unsigned long
+    *
+    * This hash function was derived (with permission) from
+    * Paul Haahr's hash in the most excellent rc 1.4.
+    */
+
+    static unsigned long hash(const char *s, size_t length) {
+    char c;
+    unsigned long h=0;
+    size_t i = 0;
+    switch(length % 4) {
+        do {
+        c=s[i++]; h+=(c<<17)^(c<<11)^(c<<5)^(c>>1);
+        case 3:
+        c=s[i++]; h^=(c<<14)+(c<<7)+(c<<4)+c;
+        case 2:
+        c=s[i++]; h^=(~c<<11)|((c<<3)^(c>>1));
+        case 1:
+        c=s[i++]; h-=(c<<16)|(c<<9)|(c<<2)|(c&3);
+        case 0:
+        ;
+        } while(i < length);
+    }
+    return h;
+    }
+
+
+    /* find -- find entry for symbol in symbol table
+    *
+    * Look for a symbol matching the string in the symbol table.
+    * If the symbol was found, returns the address of the symbol
+    * table entry which points to the symbol.  Otherwise it
+    * either returns the address of a NULL entry into which the
+    * new symbol should be inserted, or NULL if the symbol table
+    * is full.
+    */
+
+    static obj_t *find(char *string) {
+    unsigned long i, h, probe;
+
+    h = hash(string, strlen(string));
+    probe = (h >> 8) | 1;
+    h &= (symtab_size-1);
+    i = h;
+    do {
+        if(symtab[i] == NULL ||
+        strcmp(string, symtab[i]->symbol.string) == 0)
+        return &symtab[i];
+        i = (i+probe) & (symtab_size-1);
+    } while(i != h);
+
+    return NULL;
+    }
+
+
+    /* rehash -- double size of symbol table */
+
+    static void rehash(void) {
+    obj_t *old_symtab = symtab;
+    unsigned old_symtab_size = symtab_size;
+    unsigned i;
+
+    symtab_size *= 2;
+    symtab = my_malloc(sizeof(obj_t) * symtab_size);
+    if(symtab == NULL) error("out of memory");
+
+    /* Initialize the new table to NULL so that "find" will work. */
+    for(i = 0; i < symtab_size; ++i)
+        symtab[i] = NULL;
+
+    for(i = 0; i < old_symtab_size; ++i)
+        if(old_symtab[i] != NULL) {
+        obj_t *where = find(old_symtab[i]->symbol.string);
+        assert(where != NULL);    /* new table shouldn't be full */
+        assert(*where == NULL);   /* shouldn't be in new table */
+        *where = old_symtab[i];
+        }
+
+    my_free(old_symtab);
+    }
+
+    /* union-find string in symbol table, rehashing if necessary */
+    static obj_t intern(char *string) {
+    obj_t *where;
+
     where = find(string);
-    assert(where != NULL);      /* shouldn't be full after rehash */
-  }
 
-  if(*where == NULL)            /* symbol not found in table */
-    *where = make_symbol(strlen(string), string);
-
-  return *where;
-}
-
-
-/* Hash table implementation */
-
-static unsigned long eq_hash(obj_t obj)
-{
-  union {char s[sizeof(obj_t)]; obj_t addr;} u = {""};
-  u.addr = obj;
-  return hash(u.s, sizeof(obj_t));
-}
-
-static int eqp(obj_t obj1, obj_t obj2)
-{
-  return obj1 == obj2;
-}
-
-static unsigned long eqv_hash(obj_t obj)
-{
-  switch(TYPE(obj)) {
-  case TYPE_INTEGER:
-    return obj->integer.integer;
-  case TYPE_CHARACTER:
-    return obj->character.c;
-  default:
-    return eq_hash(obj);
-  }
-}
-
-static int eqvp(obj_t obj1, obj_t obj2)
-{
-  if (obj1 == obj2)
-    return 1;
-  if (TYPE(obj1) != TYPE(obj2))
-    return 0;
-  switch(TYPE(obj1)) {
-  case TYPE_INTEGER:
-    return obj1->integer.integer == obj2->integer.integer;
-  case TYPE_CHARACTER:
-    return obj1->character.c == obj2->character.c;
-  default:
-    return 0;
-  }
-}
-
-static unsigned long string_hash(obj_t obj)
-{
-  unless(TYPE(obj) == TYPE_STRING)
-    error("string-hash: argument must be a string");
-  return hash(obj->string.string, obj->string.length);
-}
-
-static int string_equalp(obj_t obj1, obj_t obj2)
-{
-  return obj1 == obj2 ||
-         (TYPE(obj1) == TYPE_STRING &&
-          TYPE(obj2) == TYPE_STRING &&
-          obj1->string.length == obj2->string.length &&
-          0 == strcmp(obj1->string.string, obj2->string.string));
-}
-
-static struct bucket_s *buckets_find(obj_t tbl, obj_t buckets, obj_t key)
-{
-  unsigned long i, h, probe;
-  struct bucket_s *result = NULL;
-  assert(TYPE(tbl) == TYPE_TABLE);
-  assert(TYPE(buckets) == TYPE_BUCKETS);
-  h = tbl->table.hash(key);
-  probe = (h >> 8) | 1;
-  h &= (buckets->buckets.length-1);
-  i = h;
-  do {
-    struct bucket_s *b = &buckets->buckets.bucket[i];
-    if(b->key == NULL || tbl->table.cmp(b->key, key))
-      return b;
-    if(result == NULL && b->key == obj_deleted)
-      result = b;
-    i = (i+probe) & (buckets->buckets.length-1);
-  } while(i != h);
-  return result;
-}
-
-static size_t table_size(obj_t tbl)
-{
-  size_t used, deleted;
-  assert(TYPE(tbl) == TYPE_TABLE);
-  used = tbl->table.buckets->buckets.used;
-  deleted = tbl->table.buckets->buckets.deleted;
-  assert(used >= deleted);
-  return used - deleted;
-}
-
-static void table_rehash(obj_t tbl)
-{
-  size_t i, old_length, new_length;
-  obj_t new_buckets;
-
-  assert(TYPE(tbl) == TYPE_TABLE);
-  old_length = tbl->table.buckets->buckets.length;
-  new_length = old_length * 2;
-  new_buckets = make_buckets(new_length);
-
-  for (i = 0; i < old_length; ++i) {
-    struct bucket_s *old_b = &tbl->table.buckets->buckets.bucket[i];
-    if (old_b->key != NULL && old_b->key != obj_deleted) {
-      struct bucket_s *b = buckets_find(tbl, new_buckets, old_b->key);
-      assert(b != NULL);        /* new table shouldn't be full */
-      assert(b->key == NULL);   /* shouldn't be in new table */
-      *b = *old_b;
-      ++ new_buckets->buckets.used;
+    if(where == NULL) {
+        rehash();
+        where = find(string);
+        assert(where != NULL);      /* shouldn't be full after rehash */
     }
-  }
 
-  assert(new_buckets->buckets.used == table_size(tbl));
-  tbl->table.buckets = new_buckets;
-}
+    if(*where == NULL)            /* symbol not found in table */
+        *where = make_symbol(strlen(string), string);
 
-static obj_t table_ref(obj_t tbl, obj_t key)
-{
-  struct bucket_s *b;
-  assert(TYPE(tbl) == TYPE_TABLE);
-  b = buckets_find(tbl, tbl->table.buckets, key);
-  if (b && b->key != NULL && b->key != obj_deleted)
-    return b->value;
-  return NULL;
-}
+    return *where;
+    }
 
-static int table_full(obj_t tbl)
-{
-  assert(TYPE(tbl) == TYPE_TABLE);
-  return tbl->table.buckets->buckets.used >= tbl->table.buckets->buckets.length / 2;
-}
 
-static void table_set(obj_t tbl, obj_t key, obj_t value)
-{
-  struct bucket_s *b;
-  assert(TYPE(tbl) == TYPE_TABLE);
-  if (table_full(tbl) || (b = buckets_find(tbl, tbl->table.buckets, key)) == NULL) {
-    table_rehash(tbl);
+    /* Hash table implementation */
+
+    static unsigned long eq_hash(obj_t obj)
+    {
+    union {char s[sizeof(obj_t)]; obj_t addr;} u = {""};
+    u.addr = obj;
+    return hash(u.s, sizeof(obj_t));
+    }
+
+    static int eqp(obj_t obj1, obj_t obj2)
+    {
+    return obj1 == obj2;
+    }
+
+    static unsigned long eqv_hash(obj_t obj)
+    {
+    switch(TYPE(obj)) {
+    case TYPE_INTEGER:
+        return obj->integer.integer;
+    case TYPE_CHARACTER:
+        return obj->character.c;
+    default:
+        return eq_hash(obj);
+    }
+    }
+
+    static int eqvp(obj_t obj1, obj_t obj2)
+    {
+    if (obj1 == obj2)
+        return 1;
+    if (TYPE(obj1) != TYPE(obj2))
+        return 0;
+    switch(TYPE(obj1)) {
+    case TYPE_INTEGER:
+        return obj1->integer.integer == obj2->integer.integer;
+    case TYPE_CHARACTER:
+        return obj1->character.c == obj2->character.c;
+    default:
+        return 0;
+    }
+    }
+
+    static unsigned long string_hash(obj_t obj)
+    {
+    unless(TYPE(obj) == TYPE_STRING)
+        error("string-hash: argument must be a string");
+    return hash(obj->string.string, obj->string.length);
+    }
+
+    static int string_equalp(obj_t obj1, obj_t obj2)
+    {
+    return obj1 == obj2 ||
+            (TYPE(obj1) == TYPE_STRING &&
+            TYPE(obj2) == TYPE_STRING &&
+            obj1->string.length == obj2->string.length &&
+            0 == strcmp(obj1->string.string, obj2->string.string));
+    }
+
+    static struct bucket_s *buckets_find(obj_t tbl, obj_t buckets, obj_t key)
+    {
+    unsigned long i, h, probe;
+    struct bucket_s *result = NULL;
+    assert(TYPE(tbl) == TYPE_TABLE);
+    assert(TYPE(buckets) == TYPE_BUCKETS);
+    h = tbl->table.hash(key);
+    probe = (h >> 8) | 1;
+    h &= (buckets->buckets.length-1);
+    i = h;
+    do {
+        struct bucket_s *b = &buckets->buckets.bucket[i];
+        if(b->key == NULL || tbl->table.cmp(b->key, key))
+        return b;
+        if(result == NULL && b->key == obj_deleted)
+        result = b;
+        i = (i+probe) & (buckets->buckets.length-1);
+    } while(i != h);
+    return result;
+    }
+
+    static size_t table_size(obj_t tbl)
+    {
+    size_t used, deleted;
+    assert(TYPE(tbl) == TYPE_TABLE);
+    used = tbl->table.buckets->buckets.used;
+    deleted = tbl->table.buckets->buckets.deleted;
+    assert(used >= deleted);
+    return used - deleted;
+    }
+
+    static void table_rehash(obj_t tbl)
+    {
+    size_t i, old_length, new_length;
+    obj_t new_buckets;
+
+    assert(TYPE(tbl) == TYPE_TABLE);
+    old_length = tbl->table.buckets->buckets.length;
+    new_length = old_length * 2;
+    new_buckets = make_buckets(new_length);
+
+    for (i = 0; i < old_length; ++i) {
+        struct bucket_s *old_b = &tbl->table.buckets->buckets.bucket[i];
+        if (old_b->key != NULL && old_b->key != obj_deleted) {
+        struct bucket_s *b = buckets_find(tbl, new_buckets, old_b->key);
+        assert(b != NULL);        /* new table shouldn't be full */
+        assert(b->key == NULL);   /* shouldn't be in new table */
+        *b = *old_b;
+        ++ new_buckets->buckets.used;
+        }
+    }
+
+    assert(new_buckets->buckets.used == table_size(tbl));
+    tbl->table.buckets = new_buckets;
+    }
+
+    static obj_t table_ref(obj_t tbl, obj_t key)
+    {
+    struct bucket_s *b;
+    assert(TYPE(tbl) == TYPE_TABLE);
     b = buckets_find(tbl, tbl->table.buckets, key);
-    assert(b != NULL);          /* shouldn't be full after rehash */
-  }
-  if (b->key == NULL) {
-    b->key = key;
+    if (b && b->key != NULL && b->key != obj_deleted)
+        return b->value;
+    return NULL;
+    }
+
+    static int table_full(obj_t tbl)
+    {
+    assert(TYPE(tbl) == TYPE_TABLE);
+    return tbl->table.buckets->buckets.used >= tbl->table.buckets->buckets.length / 2;
+    }
+
+    static void table_set(obj_t tbl, obj_t key, obj_t value)
+    {
+    struct bucket_s *b;
+    assert(TYPE(tbl) == TYPE_TABLE);
+    if (table_full(tbl) || (b = buckets_find(tbl, tbl->table.buckets, key)) == NULL) {
+        table_rehash(tbl);
+        b = buckets_find(tbl, tbl->table.buckets, key);
+        assert(b != NULL);          /* shouldn't be full after rehash */
+    }
+    if (b->key == NULL) {
+            b->key = key;
     ++ tbl->table.buckets->buckets.used;
   } else if (b->key == obj_deleted) {
     b->key = key;
@@ -3498,6 +3510,19 @@ static obj_t entry_gc(obj_t env, obj_t op_env, obj_t operator, obj_t operands)
   return obj_undefined;
 }
 
+/* (scan-stack)
+ * Scan the stack
+ */
+static obj_t entry_scan_stack(obj_t env, obj_t op_env, obj_t operator, obj_t operands)
+{
+  eval_args(operator->operator.name, env, op_env, operands, 0);
+  void* bottom_obj;
+  void** stack_bottom = &bottom_obj;
+  printf("%s:%d:%s About to scan stack from %p to %p\n", __FILE__, __LINE__, __FUNCTION__, stack_bottom, global_stack_top );
+  mmtk_scan_stack( stack_bottom, global_stack_top );
+  return obj_undefined;
+}
+
 
 /* INITIALIZATION */
 
@@ -3636,6 +3661,7 @@ static struct {char *name; entry_t entry;} funtab[] = {
   {"eq-hash", entry_eq_hash},
   {"eqv-hash", entry_eqv_hash},
   {"gc", entry_gc},
+  {"scan-stack", entry_scan_stack},
 };
 
 
@@ -3644,7 +3670,7 @@ static struct {char *name; entry_t entry;} funtab[] = {
 int main(int argc, char *argv[])
 {
   void* start;
-  void* stack_start = &start;
+  global_stack_top = &start;
   FILE *input = stdin;
   size_t i;
   volatile obj_t env, op_env, obj;
@@ -3677,12 +3703,12 @@ int main(int argc, char *argv[])
   }
   // Set up the builder
   // mmtk_set_option_from_string( builder, option_name, option_value );
-  int option1 = mmtk_set_option_from_string( builder, "plan", "MarkSweep" ); // MarkSweep
+  int option1 = mmtk_set_option_from_string( builder, "plan", "Immix" ); // MarkSweep
   if (!option1) {
     printf("%s:%d:%s Error when calling mmtk_set_option_from_string plan\n", __FILE__, __LINE__, __FUNCTION__ );
     exit(1);
   }
-  mmtk_init(builder);
+  mmtk_init(builder,(void*) &global_rt_upcalls);
   
   global_mutator = mmtk_bind_mutator(NULL); // NULL for main mutator thread
   mmtk_initialize_collection(global_mutator);
@@ -3698,6 +3724,8 @@ int main(int argc, char *argv[])
 
   mmtk_c_test();
 
+  mmtk_info();
+  
   symtab_size = 16;
   symtab = my_malloc(sizeof(obj_t) * symtab_size);
   if(symtab == NULL) error("out of memory");
