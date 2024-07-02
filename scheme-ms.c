@@ -32,19 +32,29 @@
 void** global_stack_top = NULL;
 
 
-void** mutator_stack_top() {
+void** mmtk_mutator_stack_top() {
   printf("%s:%d:%s Someone is calling this function\n", __FILE__, __LINE__, __FUNCTION__ );
   return global_stack_top;
 }
 
+int global_block_thread = 0;
+
+void mmtk_block_for_gc(void* mutatorThread) {
+  printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
+  global_block_thread = 1;
+};
+
+
 
 typedef struct {
   void** (*mutator_stack_top)(void);
+  void (*block_for_gc)(void* mutatorThread);
 } RtUpcalls;
 
 
 RtUpcalls global_rt_upcalls = {
-  mutator_stack_top,
+  mmtk_mutator_stack_top,
+  mmtk_block_for_gc,
 };
 
     /* LANGUAGE EXTENSION */
@@ -3786,6 +3796,10 @@ int main(int argc, char *argv[])
       if(obj != obj_undefined) {
         print(obj, 6, stdout);
         putc('\n', stdout);
+      }
+      if (global_block_thread) {
+        while (global_block_thread) {}
+        printf("%s:%d:%s Left blocking loop  global_block_thread = %d\n", __FILE__, __LINE__, __FUNCTION__, global_block_thread );
       }
     }
     puts("Bye.");
