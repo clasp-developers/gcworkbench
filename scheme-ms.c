@@ -30,6 +30,7 @@
 
 
 void** global_stack_top = NULL;
+void* global_mutator = NULL;  // Global var for single mutator thread
 
 
 void** mmtk_mutator_stack_top() {
@@ -42,19 +43,75 @@ int global_block_thread = 0;
 void mmtk_block_for_gc(void* mutatorThread) {
   printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
   global_block_thread = 1;
+  while (global_block_thread) {
+    // do nothing;
+  }
+  printf("%s:%d:%s Leaving mmtk_block_for_gc.\n", __FILE__, __LINE__, __FUNCTION__ );
 };
 
+
+void mmtk_stop_all_mutators(void* mutatorThread) {
+  printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
+  // Do nothing
+};
+
+void mmtk_resume_mutators(void* mutatorThread) {
+  printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
+  global_block_thread = 0;
+};
+
+
+static void
+mmtk_get_mutators(void (*visit_mutator)(void *mutator, void *data), void *data)
+{
+  visit_mutator(global_mutator, data);
+}
+
+
+// UPCALL
+static void
+mmtk_scan_vm_specific_roots( void* workerThread, void* factory  )
+{
+  printf("%s:%d:%s Entered\n", __FILE__, __LINE__, __FUNCTION__ );
+  // here we will scan isymtab and sptab and call mmtk_is_mmtk_object(ptr)
+  // and when it returns true we will pass the pointer to factory
+}
+
+
+static void
+mmtk_scan_roots_in_mutator_thread( void* workerThread, void* mutator, void* factory  )
+{
+  printf("%s:%d:%s Entered\n", __FILE__, __LINE__, __FUNCTION__ );
+  void** stack_bottom_obj = 0;
+  void** stack_bottom = &stack_bottom_obj;
+  
+  // Scan from stack_bottom to global_stack_top
+  // Call mmtk_is_interior_pointer on each pointer
+  //  If it is an interior_pointer then pass the ObjectReference to factory
+  
+}
+
+
+static void mmtk_scan_object( void* workerThread, void* objectReference, void* slot_visitor ) {
+  // Duplicate what is in scheme.c  obj_scan
+  
+}
 
 
 typedef struct {
   void** (*mutator_stack_top)(void);
   void (*block_for_gc)(void* mutatorThread);
+  void (*stop_all_mutators)(void* mutatorThread);
+  void (*resume_mutators)(void* mutatorThread);
+  void (*get_mutators)(void (*visit_mutator)(void *mutator, void *data), void *data);
 } RtUpcalls;
-
 
 RtUpcalls global_rt_upcalls = {
   mmtk_mutator_stack_top,
   mmtk_block_for_gc,
+  mmtk_stop_all_mutators,
+  mmtk_resume_mutators,
+  mmtk_get_mutators,
 };
 
     /* LANGUAGE EXTENSION */
@@ -69,9 +126,6 @@ RtUpcalls global_rt_upcalls = {
     #define SYMMAX          ((size_t)255)   /* max length of a symbol */
     #define MSGMAX          ((size_t)255)   /* max length of error message */
     #define STRMAX          ((size_t)255)   /* max length of a string */
-
-
-    void* global_mutator = NULL;  // Global var for single mutator thread
 
     void* my_malloc(size_t size) {
     size_t true_size = size;
@@ -3796,10 +3850,6 @@ int main(int argc, char *argv[])
       if(obj != obj_undefined) {
         print(obj, 6, stdout);
         putc('\n', stdout);
-      }
-      if (global_block_thread) {
-        while (global_block_thread) {}
-        printf("%s:%d:%s Left blocking loop  global_block_thread = %d\n", __FILE__, __LINE__, __FUNCTION__, global_block_thread );
       }
     }
     puts("Bye.");
