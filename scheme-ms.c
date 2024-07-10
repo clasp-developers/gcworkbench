@@ -45,6 +45,7 @@ void mmtk_block_for_gc(void* mutatorThread) {
   global_block_thread = 1;
   while (global_block_thread) {
     // do nothing;
+    break;
   }
   printf("%s:%d:%s Leaving mmtk_block_for_gc.\n", __FILE__, __LINE__, __FUNCTION__ );
 };
@@ -82,7 +83,7 @@ static void
 mmtk_scan_roots_in_mutator_thread( void* workerThread, void* mutator, void* factory  )
 {
   printf("%s:%d:%s Entered\n", __FILE__, __LINE__, __FUNCTION__ );
-  void** stack_bottom_obj = 0;
+  void* stack_bottom_obj = 0;
   void** stack_bottom = &stack_bottom_obj;
   
   // Scan from stack_bottom to global_stack_top
@@ -104,6 +105,9 @@ typedef struct {
   void (*stop_all_mutators)(void* mutatorThread);
   void (*resume_mutators)(void* mutatorThread);
   void (*get_mutators)(void (*visit_mutator)(void *mutator, void *data), void *data);
+  void (*scan_vm_specific_roots)(void* workerThread, void* factory);
+  void (*scan_roots_in_mutator_thread)(void* workerThread, void* mutator, void* factory);
+  void (*scan_object)(void* workerThread, void* objectReference, void* slot_visitor);
 } RtUpcalls;
 
 RtUpcalls global_rt_upcalls = {
@@ -112,6 +116,9 @@ RtUpcalls global_rt_upcalls = {
   mmtk_stop_all_mutators,
   mmtk_resume_mutators,
   mmtk_get_mutators,
+  mmtk_scan_vm_specific_roots,
+  mmtk_scan_roots_in_mutator_thread,
+  mmtk_scan_object,
 };
 
     /* LANGUAGE EXTENSION */
