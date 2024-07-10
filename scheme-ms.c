@@ -38,19 +38,6 @@ void** mmtk_mutator_stack_top() {
   return global_stack_top;
 }
 
-int global_block_thread = 0;
-
-void mmtk_block_for_gc(void* mutatorThread) {
-  printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
-  global_block_thread = 1;
-  while (global_block_thread) {
-    // do nothing;
-    break;
-  }
-  printf("%s:%d:%s Leaving mmtk_block_for_gc.\n", __FILE__, __LINE__, __FUNCTION__ );
-};
-
-
 void mmtk_stop_all_mutators(void* mutatorThread) {
   printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
   // Do nothing
@@ -58,7 +45,6 @@ void mmtk_stop_all_mutators(void* mutatorThread) {
 
 void mmtk_resume_mutators(void* mutatorThread) {
   printf("%s:%d:%s Someone is calling this function with %p\n", __FILE__, __LINE__, __FUNCTION__, mutatorThread );
-  global_block_thread = 0;
 };
 
 
@@ -110,7 +96,6 @@ static void mmtk_scan_object( void* workerThread, void* objectReference, void* s
 
 typedef struct {
   void** (*mutator_stack_top)(void);
-  void (*block_for_gc)(void* mutatorThread);
   void (*stop_all_mutators)(void* mutatorThread);
   void (*resume_mutators)(void* mutatorThread);
   void (*get_mutators)(void (*visit_mutator)(void *mutator, void *data), void *data);
@@ -121,7 +106,6 @@ typedef struct {
 
 RtUpcalls global_rt_upcalls = {
   mmtk_mutator_stack_top,
-  mmtk_block_for_gc,
   mmtk_stop_all_mutators,
   mmtk_resume_mutators,
   mmtk_get_mutators,
