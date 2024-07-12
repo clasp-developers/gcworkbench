@@ -68,16 +68,25 @@ mmtk_get_mutators(void (*visit_mutator)(void *mutator, void *data), void *data)
   visit_mutator(global_mutator, data);
 }
 
-
-// UPCALL
+//UPCALLS
+/*
 static void
 mmtk_scan_vm_specific_roots( void* workerThread, void* factory  )
 {
   printf("%s:%d:%s Entered\n", __FILE__, __LINE__, __FUNCTION__ );
   // here we will scan isymtab and sptab and call mmtk_is_mmtk_object(ptr)
   // and when it returns true we will pass the pointer to factory
-}
+  
+  for (int i=0; i<7; ++i){
+    void *varp = isymtab[i].varp;
+    printf("thing: %p\n", varp);
+  }
 
+  void* first_in_isymtab = isymtab[0];
+  printf("first: %p\n",first_in_isymtab);
+  
+}
+*/
 
 static void
 mmtk_scan_roots_in_mutator_thread( void* workerThread, void* mutator, void* factory  )
@@ -3611,6 +3620,8 @@ static struct {char *name; obj_t *varp;} sptab[] = {
   {"#[deleted]", &obj_deleted}
 };
 
+static int sptab_count = 8;
+
 
 /* initial symbol table */
 
@@ -3624,6 +3635,51 @@ static struct {char *name; obj_t *varp;} isymtab[] = {
   {"unquote-splicing", &obj_unquote_splic}
 };
 
+
+void
+mmtk_scan_vm_specific_roots( void* workerThread, void* factory  )
+{
+  printf("%s:%d:%s Entered\n", __FILE__, __LINE__, __FUNCTION__ );
+  // here we will scan isymtab and sptab and call mmtk_is_mmtk_object(ptr)
+  // and when it returns true we will pass the pointer to factory
+  
+  for (int i=0; i<7; ++i){
+    obj_t *varp = isymtab[i].varp;
+    printf("imsymtab obj: %p\n", (void*)varp);
+  }
+
+  obj_t *first_in_isymtab = isymtab[0].varp;
+  printf("first in isymtab: %p\n",(void*)first_in_isymtab);
+  
+  for (int i=0; i<8; ++i){
+    obj_t *varp = sptab[i].varp;
+    printf("sptab obj: %p\n",(void*)varp);
+  }
+
+  obj_t *first_in_sptab = sptab[0].varp;
+  printf("first in sptab: %p\n",(void*)first_in_sptab);
+  
+}
+
+int mmtk_num_entries_in_sptab(){
+  int num = sizeof(sptab)/sizeof(sptab[0]);
+  return num;
+}
+
+int mmtk_num_entries_in_isymtab(){
+  int num = sizeof(isymtab)/sizeof(isymtab[0]);
+  return num;
+}
+
+void* mmtk_first_in_sptab(){
+  obj_t *first = sptab[0].varp;
+  return (void*)first;
+}
+
+void* mmtk_first_in_isymtab(){
+  obj_t *first = isymtab[0].varp;
+  return (void*)first;
+}
 
 /* operator table */
 
