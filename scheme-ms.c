@@ -102,6 +102,10 @@ typedef struct {
   void (*scan_vm_specific_roots)(void* workerThread, void* factory);
   void (*scan_roots_in_mutator_thread)(void* workerThread, void* mutator, void* factory);
   void (*scan_object)(void* workerThread, void* objectReference, void* slot_visitor);
+  int (*num_entries_in_sptab)();
+  int (*num_entries_in_isymtab)();
+  void* (*first_in_sptab)();
+  void* (*first_in_isymtab)();
 } RtUpcalls;
 
 RtUpcalls global_rt_upcalls = {
@@ -112,6 +116,10 @@ RtUpcalls global_rt_upcalls = {
   mmtk_scan_vm_specific_roots,
   mmtk_scan_roots_in_mutator_thread,
   mmtk_scan_object,
+  mmtk_num_entries_in_sptab,
+  mmtk_num_entries_in_isymtab,
+  mmtk_first_in_sptab,
+  mmtk_first_in_isymtab,
 };
 
     /* LANGUAGE EXTENSION */
