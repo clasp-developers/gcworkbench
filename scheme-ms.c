@@ -3636,16 +3636,19 @@ mmtk_scan_vm_specific_roots( void* workerThread, void* factory  )
 }
 
 int mmtk_num_entries_in_sptab(){
+  printf("entered mmtk_num_entries_in_sptab");
   int num = sizeof(sptab)/sizeof(sptab[0]);
   return num;
 }
 
 int mmtk_num_entries_in_isymtab(){
+  printf("entered mmtk_num_entries_in_isymtab");
   int x = (int)sizeof(isymtab);
   printf("size isymtab: %d\n", x);
   int y = (int)sizeof(isymtab[0]);
   printf("size isymtab element: %d\n", y);
-  int num = sizeof(isymtab)/sizeof(isymtab[0]);
+  //int num = sizeof(isymtab)/sizeof(isymtab[0]);
+  int num = 50;
   return num;
 }
 
