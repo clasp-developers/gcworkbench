@@ -3647,9 +3647,6 @@ int mmtk_num_entries_in_isymtab(){
 
 void* mmtk_first_in_sptab(){
   obj_t *first_address = sptab[0].varp;
-  printf("\n");
-  printf("first in sptab name (C): %s\n",sptab[0].name);
-  printf("first in sptab varp (C): %x\n",sptab[0].varp);
   return (void*)first_address;
 }
 
